@@ -1,18 +1,13 @@
 import { setFailed } from '@actions/core'
 import { configRoadMaps, RoadMapSheet } from './road_map_sheet'
-import { context } from '@actions/github'
 
 /**
  * The main function for the action.
  * @returns {Promise<void>} Resolves when the action is complete.
  */
 export async function run(): Promise<void> {
-  console.log(context)
   const { GSHEET_WORKSHEET_NAME, GSHEET_SPREADSHEET_ID } = process.env
-  if (
-    GSHEET_SPREADSHEET_ID === undefined ||
-    GSHEET_WORKSHEET_NAME === undefined
-  )
+  if (!GSHEET_SPREADSHEET_ID || !GSHEET_WORKSHEET_NAME)
     throw new Error(
       'GSHEET_SPREADSHEET_ID and GSHEET_WORKSHEET_NAME must be defined'
     )
@@ -22,6 +17,7 @@ export async function run(): Promise<void> {
 
   try {
     const roadMapSheet = new RoadMapSheet(spreadsheetId, worksheetTitle)
+    await roadMapSheet.loadInfo()
 
     for await (const config of configRoadMaps) {
       if (config.conditions.every(condition => condition)) {

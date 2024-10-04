@@ -73184,8 +73184,6 @@ class GoogleSheets {
         const rows = await this.currentSheet.getRows();
         // const header = await this.currentSheet.getHeaderRow();
         const rowBranch = rows?.find(row => row.get('BRANCH') === branch);
-        if (!rowBranch)
-            throw new Error('Branch not found');
         return rowBranch;
     }
 }
@@ -73193,6 +73191,7 @@ class GoogleSheets {
 // EXTERNAL MODULE: ./node_modules/@actions/github/lib/github.js
 var github = __nccwpck_require__(95438);
 ;// CONCATENATED MODULE: ./src/road_map_sheet.ts
+
 
 
 const date = new Date();
@@ -73219,15 +73218,15 @@ const configRoadMaps = [
         description: 'Add data to row'
     }
 ];
-console.log(JSON.stringify(configRoadMaps, null, 2));
+(0,core.debug)(JSON.stringify(configRoadMaps, null, 2));
 class RoadMapSheet extends GoogleSheets {
     dateToUpdate = `${date.getDate()}/${date.getMonth() + 1}/${date.getFullYear()}`;
-    branch = github.context?.payload?.pull_request?.head.ref;
+    branch = github.context?.payload?.pull_request?.head?.ref;
     prUrl = github.context?.payload?.pull_request?.html_url;
     async addDataToRow() {
-        if ((await this.existsPRByBranch()) === true)
+        if ((await this.updateExistingPRByBranch()) === true)
             return;
-        const prOwner = github.context?.payload?.pull_request?.user.login;
+        const prOwner = github.context?.payload?.pull_request?.user?.login;
         const prRepository = github.context?.payload?.repository?.full_name || '';
         // const prTitle = context?.payload?.pull_request?.title;
         const prBody = github.context?.payload?.pull_request?.body || '';
@@ -73235,7 +73234,7 @@ class RoadMapSheet extends GoogleSheets {
         const typeFeatRegex = /-\s*\[X\]\s*(Feature|Bugfix|Hotfix|Refactor|Documentation)/i;
         const testerRegex = /- Encargad@s:\s*(.*)/i;
         const taskAsanaRegex = /\[Enlace Asana\]\((.*)\)/i;
-        const descriptionRegex = /# Descripción Breve\s*([\s\S]*?)##/i;
+        const descriptionRegex = /# Descripción Breve\s*(?:_[\s\S]*?_\s*)?([\s\S]*?)\n##/i;
         const descriptionExec = descriptionRegex.exec(prBody);
         const typeFeatExec = typeFeatRegex.exec(prBody);
         const testerExec = testerRegex.exec(prBody);
@@ -73252,7 +73251,7 @@ class RoadMapSheet extends GoogleSheets {
         const owner = prOwner;
         const repository = prRepository.replace('Negozia/', '');
         const description = descriptionExec ? descriptionExec[1].trim() : '';
-        const typeFeat = typeFeatExec ? typeFeatExec[1].trim() : '';
+        const typeFeat = typeFeatExec ? typeFeatExec[1].trim().toUpperCase() : '';
         const tester = testerExec ? testerExec[1].trim() : '';
         const taskAsana = taskAsanaExec ? taskAsanaExec[1].trim() : '';
         await this.addRow([
@@ -73270,6 +73269,8 @@ class RoadMapSheet extends GoogleSheets {
     }
     async updateQaDeployment() {
         const rowBranch = await this.getRowByBranch(this.branch);
+        if (!rowBranch)
+            throw new Error('Branch not found');
         for (let i = 1; i <= 4; i++) {
             if (rowBranch.get('INSTALLED TEST ' + i) && i != 4)
                 continue;
@@ -73280,6 +73281,8 @@ class RoadMapSheet extends GoogleSheets {
     }
     async updatePdnDeployment() {
         const rowBranch = await this.getRowByBranch(this.branch);
+        if (!rowBranch)
+            throw new Error('Branch not found');
         rowBranch.set('INSTALLED PDN', this.dateToUpdate);
         const cellsPropsToUpdate = [
             {
@@ -73294,7 +73297,7 @@ class RoadMapSheet extends GoogleSheets {
         this.modifyRowByIndex(rowBranch.rowNumber - 1, cellsPropsToUpdate);
         await rowBranch.save();
     }
-    async existsPRByBranch() {
+    async updateExistingPRByBranch() {
         const rowBranch = await this.getRowByBranch(this.branch);
         if (!rowBranch)
             return false;
@@ -73308,21 +73311,19 @@ class RoadMapSheet extends GoogleSheets {
 ;// CONCATENATED MODULE: ./src/main.ts
 
 
-
 /**
  * The main function for the action.
  * @returns {Promise<void>} Resolves when the action is complete.
  */
 async function run() {
-    console.log(github.context);
     const { GSHEET_WORKSHEET_NAME, GSHEET_SPREADSHEET_ID } = process.env;
-    if (GSHEET_SPREADSHEET_ID === undefined ||
-        GSHEET_WORKSHEET_NAME === undefined)
+    if (!GSHEET_SPREADSHEET_ID || !GSHEET_WORKSHEET_NAME)
         throw new Error('GSHEET_SPREADSHEET_ID and GSHEET_WORKSHEET_NAME must be defined');
     const worksheetTitle = `${GSHEET_WORKSHEET_NAME} ${new Date().getFullYear()}`;
     const spreadsheetId = `${GSHEET_SPREADSHEET_ID}`;
     try {
         const roadMapSheet = new RoadMapSheet(spreadsheetId, worksheetTitle);
+        await roadMapSheet.loadInfo();
         for await (const config of configRoadMaps) {
             if (config.conditions.every(condition => condition)) {
                 // @ts-expect-error @TODO create a type for the function

@@ -1,5 +1,6 @@
 import GoogleSheets from './google_sheets'
 import { context } from '@actions/github'
+import { debug } from '@actions/core'
 
 const date = new Date()
 
@@ -27,17 +28,17 @@ export const configRoadMaps = [
   }
 ]
 
-console.log(JSON.stringify(configRoadMaps, null, 2))
+debug(JSON.stringify(configRoadMaps, null, 2))
 
 export class RoadMapSheet extends GoogleSheets {
   private dateToUpdate = `${date.getDate()}/${date.getMonth() + 1}/${date.getFullYear()}`
-  private branch = context?.payload?.pull_request?.head.ref
+  private branch = context?.payload?.pull_request?.head?.ref
   private prUrl = context?.payload?.pull_request?.html_url
 
   async addDataToRow(): Promise<void> {
-    if ((await this.existsPRByBranch()) === true) return
+    if ((await this.updateExistingPRByBranch()) === true) return
 
-    const prOwner = context?.payload?.pull_request?.user.login
+    const prOwner = context?.payload?.pull_request?.user?.login
     const prRepository = context?.payload?.repository?.full_name || ''
     // const prTitle = context?.payload?.pull_request?.title;
     const prBody = context?.payload?.pull_request?.body || ''
@@ -47,7 +48,8 @@ export class RoadMapSheet extends GoogleSheets {
       /-\s*\[X\]\s*(Feature|Bugfix|Hotfix|Refactor|Documentation)/i
     const testerRegex = /- Encargad@s:\s*(.*)/i
     const taskAsanaRegex = /\[Enlace Asana\]\((.*)\)/i
-    const descriptionRegex = /# Descripción Breve\s*([\s\S]*?)##/i
+    const descriptionRegex =
+      /# Descripción Breve\s*(?:_[\s\S]*?_\s*)?([\s\S]*?)\n##/i
 
     const descriptionExec = descriptionRegex.exec(prBody)
     const typeFeatExec = typeFeatRegex.exec(prBody)
@@ -67,7 +69,7 @@ export class RoadMapSheet extends GoogleSheets {
     const owner = prOwner
     const repository = prRepository.replace('Negozia/', '')
     const description = descriptionExec ? descriptionExec[1].trim() : ''
-    const typeFeat = typeFeatExec ? typeFeatExec[1].trim() : ''
+    const typeFeat = typeFeatExec ? typeFeatExec[1].trim().toUpperCase() : ''
     const tester = testerExec ? testerExec[1].trim() : ''
     const taskAsana = taskAsanaExec ? taskAsanaExec[1].trim() : ''
 
@@ -87,6 +89,8 @@ export class RoadMapSheet extends GoogleSheets {
 
   async updateQaDeployment(): Promise<void> {
     const rowBranch = await this.getRowByBranch(this.branch)
+    if (!rowBranch) throw new Error('Branch not found')
+
     for (let i = 1; i <= 4; i++) {
       if (rowBranch.get('INSTALLED TEST ' + i) && i != 4) continue
 
@@ -98,6 +102,7 @@ export class RoadMapSheet extends GoogleSheets {
 
   async updatePdnDeployment(): Promise<void> {
     const rowBranch = await this.getRowByBranch(this.branch)
+    if (!rowBranch) throw new Error('Branch not found')
 
     rowBranch.set('INSTALLED PDN', this.dateToUpdate)
     const cellsPropsToUpdate = [
@@ -116,7 +121,7 @@ export class RoadMapSheet extends GoogleSheets {
     await rowBranch.save()
   }
 
-  private async existsPRByBranch(): Promise<boolean> {
+  private async updateExistingPRByBranch(): Promise<boolean> {
     const rowBranch = await this.getRowByBranch(this.branch)
     if (!rowBranch) return false
 

@@ -74,13 +74,14 @@ export default class GoogleSheets {
     await this.currentSheet?.saveUpdatedCells()
   }
 
-  async getRowByBranch(branch: string): Promise<GoogleSpreadsheetRow> {
+  async getRowByBranch(
+    branch: string
+  ): Promise<GoogleSpreadsheetRow | undefined> {
     if (!this.currentSheet) throw new Error('Sheet not found')
 
     const rows = await this.currentSheet.getRows()
     // const header = await this.currentSheet.getHeaderRow();
     const rowBranch = rows?.find(row => row.get('BRANCH') === branch)
-    if (!rowBranch) throw new Error('Branch not found')
     return rowBranch
   }
 }
