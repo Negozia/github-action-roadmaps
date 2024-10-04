@@ -57,7 +57,8 @@ export default class GoogleSheets {
     index: number,
     data: Partial<GoogleSpreadsheetCell>[]
   ): Promise<void> {
-    if (!this.currentSheet) throw new Error('Sheet not found in modifyRowByIndex')
+    if (!this.currentSheet)
+      throw new Error('Sheet not found in modifyRowByIndex')
 
     await this.currentSheet.loadCells()
     for (let i = 0; i < this.currentSheet.columnCount; i++) {

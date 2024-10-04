@@ -73289,15 +73289,15 @@ class RoadMapSheet extends GoogleSheets {
         const cellsPropsToUpdate = [
             {
                 backgroundColor: {
-                    red: 20,
-                    green: 20,
-                    blue: 20,
-                    alpha: 10
+                    red: 0.94,
+                    green: 0.94,
+                    blue: 0.94,
+                    alpha: 1
                 }
             }
         ];
-        this.modifyRowByIndex(rowBranch.rowNumber - 1, cellsPropsToUpdate);
         await rowBranch.save();
+        await this.modifyRowByIndex(rowBranch.rowNumber - 1, cellsPropsToUpdate);
     }
     async updateExistingPRByBranch() {
         const rowBranch = await this.getRowByBranch(this.branch);
