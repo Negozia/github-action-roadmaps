@@ -28,7 +28,9 @@ describe('action', () => {
     process.env = {
       ...originalEnv,
       GSHEET_WORKSHEET_NAME: 'Test',
-      GSHEET_SPREADSHEET_ID: '1'
+      GSHEET_SPREADSHEET_ID: '1',
+      GSHEET_CLIENT_EMAIL: 'gsheet@gserviceaccount.com',
+      GSHEET_PRIVATE_KEY: '---'
     }
 
     // debugMock = jest.spyOn(core, 'debug').mockImplementation()

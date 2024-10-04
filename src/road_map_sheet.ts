@@ -3,12 +3,40 @@ import { context } from '@actions/github'
 
 const date = new Date()
 
+export const configRoadMaps = [
+  {
+    conditions: [
+      context?.payload?.action === 'labeled',
+      context?.payload?.label?.name === 'qa'
+    ],
+    func: 'updateQaDeployment',
+    description: 'Update QA deployment'
+  },
+  {
+    conditions: [
+      context?.payload?.action === 'closed',
+      context?.payload?.pull_request?.merged
+    ],
+    func: 'updatePdnDeployment',
+    description: 'Update PDN deployment'
+  },
+  {
+    conditions: [context?.payload?.action === 'opened'],
+    func: 'addDataToRow',
+    description: 'Add data to row'
+  }
+]
+
+console.log(JSON.stringify(configRoadMaps, null, 2))
+
 export class RoadMapSheet extends GoogleSheets {
   private dateToUpdate = `${date.getDate()}/${date.getMonth() + 1}/${date.getFullYear()}`
   private branch = context?.payload?.pull_request?.head.ref
   private prUrl = context?.payload?.pull_request?.html_url
 
   async addDataToRow(): Promise<void> {
+    if ((await this.existsPRByBranch()) === true) return
+
     const prOwner = context?.payload?.pull_request?.user.login
     const prRepository = context?.payload?.repository?.full_name || ''
     // const prTitle = context?.payload?.pull_request?.title;
@@ -88,11 +116,13 @@ export class RoadMapSheet extends GoogleSheets {
     await rowBranch.save()
   }
 
-  async updatePRByBranch(): Promise<void> {
+  private async existsPRByBranch(): Promise<boolean> {
     const rowBranch = await this.getRowByBranch(this.branch)
+    if (!rowBranch) return false
 
     const actualPR = rowBranch.get('MR LINK')
     rowBranch.set('MR LINK', `${actualPR}\n${this.prUrl}`)
     await rowBranch.save()
+    return true
   }
 }

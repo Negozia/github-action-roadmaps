@@ -1,5 +1,5 @@
 import { setFailed } from '@actions/core'
-// import { RoadMapSheet } from './road_map_sheet'
+import { configRoadMaps, RoadMapSheet } from './road_map_sheet'
 import { context } from '@actions/github'
 
 /**
@@ -17,16 +17,18 @@ export async function run(): Promise<void> {
       'GSHEET_SPREADSHEET_ID and GSHEET_WORKSHEET_NAME must be defined'
     )
 
-  // const worksheetTitle: string = `${GSHEET_WORKSHEET_NAME} ${new Date().getFullYear()}`
-  // const spreadsheetId: string = GSHEET_SPREADSHEET_ID
+  const worksheetTitle = `${GSHEET_WORKSHEET_NAME} ${new Date().getFullYear()}`
+  const spreadsheetId = `${GSHEET_SPREADSHEET_ID}`
 
   try {
-    // const roadMapSheet = new RoadMapSheet(spreadsheetId, worksheetTitle)
-    // await roadMapSheet.loadInfo()
-    // setOutput('results', JSON.stringify({ results }));
-    // // eslint-disable-next-line i18n-text/no-en
-    // debug(`Processed commands\n${JSON.stringify(results, null, 2)}`);
-    // return { results };
+    const roadMapSheet = new RoadMapSheet(spreadsheetId, worksheetTitle)
+
+    for await (const config of configRoadMaps) {
+      if (config.conditions.every(condition => condition)) {
+        // @ts-expect-error @TODO create a type for the function
+        await roadMapSheet[config.func]()
+      }
+    }
   } catch (error) {
     const err = error as Error
     setFailed(err.message || err)
