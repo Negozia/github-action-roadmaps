@@ -73125,7 +73125,10 @@ function v(s){let e="";const t=Object.keys(s).filter(r=>r!=="gridProperties").jo
 
 // EXTERNAL MODULE: ./node_modules/google-auth-library/build/src/index.js
 var src = __nccwpck_require__(20810);
+// EXTERNAL MODULE: external "console"
+var external_console_ = __nccwpck_require__(96206);
 ;// CONCATENATED MODULE: ./src/google_sheets.ts
+
 
 
 const { GSHEET_CLIENT_EMAIL, GSHEET_PRIVATE_KEY } = process.env;
@@ -73147,23 +73150,23 @@ class GoogleSheets {
     async loadInfo() {
         await this.doc.loadInfo();
         const sheetIndex = this.doc.sheetsByIndex.findIndex(sheet => sheet.title === this.worksheetTitle);
+        (0,external_console_.debug)(`Sheet title: ${this.worksheetTitle}`);
+        (0,external_console_.debug)(`Sheet index: ${sheetIndex}`);
         this.currentSheet = this.doc.sheetsByIndex[sheetIndex];
-        if (!this.currentSheet)
-            throw new Error('Sheet not found');
     }
     async getRows() {
         if (!this.currentSheet)
-            throw new Error('Sheet not found');
-        return await this.currentSheet?.getRows();
+            throw new Error('Sheet not found in getRows');
+        return await this.currentSheet.getRows();
     }
     async addRow(data) {
         if (!this.currentSheet)
-            throw new Error('Sheet not found');
+            throw new Error('Sheet not found in addRow');
         return await this.currentSheet.addRow(data);
     }
     async modifyRowByIndex(index, data) {
         if (!this.currentSheet)
-            throw new Error('Sheet not found');
+            throw new Error('Sheet not found in modifyRowByIndex');
         await this.currentSheet.loadCells();
         for (let i = 0; i < this.currentSheet.columnCount; i++) {
             const cells = this.currentSheet?.getCell(index, i);
@@ -73180,9 +73183,8 @@ class GoogleSheets {
     }
     async getRowByBranch(branch) {
         if (!this.currentSheet)
-            throw new Error('Sheet not found');
+            throw new Error('Sheet not found in getRowByBranch');
         const rows = await this.currentSheet.getRows();
-        // const header = await this.currentSheet.getHeaderRow();
         const rowBranch = rows?.find(row => row.get('BRANCH') === branch);
         return rowBranch;
     }

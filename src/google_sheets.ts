@@ -5,6 +5,7 @@ import {
   GoogleSpreadsheetWorksheet
 } from 'google-spreadsheet'
 import { JWT } from 'google-auth-library'
+import { debug } from 'console'
 
 const { GSHEET_CLIENT_EMAIL, GSHEET_PRIVATE_KEY } = process.env
 if (!GSHEET_CLIENT_EMAIL || !GSHEET_PRIVATE_KEY)
@@ -35,19 +36,19 @@ export default class GoogleSheets {
     const sheetIndex = this.doc.sheetsByIndex.findIndex(
       sheet => sheet.title === this.worksheetTitle
     )
-
+    debug(`Sheet title: ${this.worksheetTitle}`)
+    debug(`Sheet index: ${sheetIndex}`)
     this.currentSheet = this.doc.sheetsByIndex[sheetIndex]
-    if (!this.currentSheet) throw new Error('Sheet not found')
   }
 
   async getRows(): Promise<GoogleSpreadsheetRow[]> {
-    if (!this.currentSheet) throw new Error('Sheet not found')
+    if (!this.currentSheet) throw new Error('Sheet not found in getRows')
 
-    return await this.currentSheet?.getRows()
+    return await this.currentSheet.getRows()
   }
 
   async addRow(data: string[]): Promise<GoogleSpreadsheetRow> {
-    if (!this.currentSheet) throw new Error('Sheet not found')
+    if (!this.currentSheet) throw new Error('Sheet not found in addRow')
 
     return await this.currentSheet.addRow(data)
   }
@@ -56,7 +57,7 @@ export default class GoogleSheets {
     index: number,
     data: Partial<GoogleSpreadsheetCell>[]
   ): Promise<void> {
-    if (!this.currentSheet) throw new Error('Sheet not found')
+    if (!this.currentSheet) throw new Error('Sheet not found in modifyRowByIndex')
 
     await this.currentSheet.loadCells()
     for (let i = 0; i < this.currentSheet.columnCount; i++) {
@@ -77,10 +78,9 @@ export default class GoogleSheets {
   async getRowByBranch(
     branch: string
   ): Promise<GoogleSpreadsheetRow | undefined> {
-    if (!this.currentSheet) throw new Error('Sheet not found')
+    if (!this.currentSheet) throw new Error('Sheet not found in getRowByBranch')
 
     const rows = await this.currentSheet.getRows()
-    // const header = await this.currentSheet.getHeaderRow();
     const rowBranch = rows?.find(row => row.get('BRANCH') === branch)
     return rowBranch
   }
