@@ -40,7 +40,7 @@ export class RoadMapSheet extends GoogleSheets {
     if ((await this.updateExistingPRByBranch()) === true) return
 
     const prOwner = context?.payload?.pull_request?.user?.login
-    const prRepository = context?.payload?.repository?.full_name || ''
+    const prRepository = context?.payload?.repository?.name || ''
     // const prTitle = context?.payload?.pull_request?.title;
     const prBody = context?.payload?.pull_request?.body || ''
 
@@ -68,7 +68,7 @@ export class RoadMapSheet extends GoogleSheets {
 
     // const title = prTitle;
     const owner = prOwner
-    const repository = prRepository.replace('Negozia/', '')
+    const repository = prRepository
     const description = descriptionExec ? descriptionExec[1].trim() : ''
     const typeFeat = typeFeatExec ? typeFeatExec[1].trim().toUpperCase() : ''
     const tester = testerExec ? testerExec[1].trim() : ''
@@ -94,7 +94,7 @@ export class RoadMapSheet extends GoogleSheets {
 
     for (let i = 1; i <= 4; i++) {
       const currentDate = rowBranch.get('INSTALLED TEST ' + i)
-      if (currentDate !== '' && i != 4) continue
+      if (currentDate && currentDate !== '' && i != 4) continue
 
       rowBranch.set('INSTALLED TEST ' + i, this.dateToUpdate)
       await rowBranch.save()
@@ -130,9 +130,8 @@ export class RoadMapSheet extends GoogleSheets {
     rowBranch.set('MR LINK', `${actualPR}\n${this.prUrl}`)
 
     const actualRepository = rowBranch.get('PROJECT')
-    const prRepository = context?.payload?.repository?.full_name || ''
-    const repository = prRepository.replace('Negozia/', '')
-    rowBranch.set('PROJECT', `${actualRepository}, ${repository}`)
+    const repository = context?.payload?.repository?.name || ''
+    rowBranch.set('PROJECT', `${actualRepository},\n${repository}`)
 
     await rowBranch.save()
     return true
