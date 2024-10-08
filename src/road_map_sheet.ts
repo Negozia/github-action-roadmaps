@@ -29,6 +29,7 @@ export const configRoadMaps = [
 ]
 
 debug(JSON.stringify(configRoadMaps, null, 2))
+debug(JSON.stringify(context, null, 2))
 
 export class RoadMapSheet extends GoogleSheets {
   private dateToUpdate = `${date.getDate()}/${date.getMonth() + 1}/${date.getFullYear()}`

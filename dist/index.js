@@ -73221,6 +73221,7 @@ const configRoadMaps = [
     }
 ];
 (0,core.debug)(JSON.stringify(configRoadMaps, null, 2));
+(0,core.debug)(JSON.stringify(github.context, null, 2));
 class RoadMapSheet extends GoogleSheets {
     dateToUpdate = `${date.getDate()}/${date.getMonth() + 1}/${date.getFullYear()}`;
     branch = github.context?.payload?.pull_request?.head?.ref;
