@@ -73274,7 +73274,8 @@ class RoadMapSheet extends GoogleSheets {
         if (!rowBranch)
             throw new Error('Branch not found');
         for (let i = 1; i <= 4; i++) {
-            if (rowBranch.get('INSTALLED TEST ' + i) && i != 4)
+            const currentDate = rowBranch.get('INSTALLED TEST ' + i);
+            if (currentDate !== '' && i != 4)
                 continue;
             rowBranch.set('INSTALLED TEST ' + i, this.dateToUpdate);
             await rowBranch.save();
@@ -73305,6 +73306,10 @@ class RoadMapSheet extends GoogleSheets {
             return false;
         const actualPR = rowBranch.get('MR LINK');
         rowBranch.set('MR LINK', `${actualPR}\n${this.prUrl}`);
+        const actualRepository = rowBranch.get('PROJECT');
+        const prRepository = github.context?.payload?.repository?.full_name || '';
+        const repository = prRepository.replace('Negozia/', '');
+        rowBranch.set('PROJECT', `${actualRepository}, ${repository}`);
         await rowBranch.save();
         return true;
     }
