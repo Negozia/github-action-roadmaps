@@ -1,0 +1,21 @@
+name: Roadmaps
+
+on:
+  pull_request:
+    types:
+      - opened
+      - closed
+      - labeled
+
+jobs:
+  add-to-roadmaps:
+    runs-on: ubuntu-latest
+    steps:
+      -
+        name: Update RoadMaps
+        uses: Negozia/github-action-roadmaps@v0.1.2
+        env:
+          GSHEET_CLIENT_EMAIL: ${{ secrets.GSHEET_CLIENT_EMAIL }}
+          GSHEET_PRIVATE_KEY: ${{ secrets.GSHEET_PRIVATE_KEY }}
+          GSHEET_SPREADSHEET_ID: ${{ vars.GSHEET_SPREADSHEET_ID }}
+          GSHEET_WORKSHEET_NAME: ${{ vars.GSHEET_WORKSHEET_NAME }}
