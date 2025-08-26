@@ -11,8 +11,7 @@ jobs:
   add-to-roadmaps:
     runs-on: ubuntu-latest
     steps:
-      -
-        name: Update RoadMaps
+      - name: Update RoadMaps
         uses: Negozia/github-action-roadmaps@v0.1.2
         env:
           GSHEET_CLIENT_EMAIL: ${{ secrets.GSHEET_CLIENT_EMAIL }}

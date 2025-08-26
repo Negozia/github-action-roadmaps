@@ -73201,10 +73201,10 @@ const configRoadMaps = [
     {
         conditions: [
             github.context?.payload?.action === 'labeled',
-            github.context?.payload?.label?.name === 'qa'
+            github.context?.payload?.label?.name === 'documentation'
         ],
-        func: 'updateQaDeployment',
-        description: 'Update QA deployment'
+        func: 'addDataToRow',
+        description: 'Update documentation deployment'
     },
     {
         conditions: [
