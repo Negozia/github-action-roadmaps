@@ -6,6 +6,11 @@ const date = new Date()
 
 export const configRoadMaps = [
   {
+    conditions: [context?.payload?.action === 'opened'],
+    func: 'addDataToRow',
+    description: 'Add data to row'
+  },
+  {
     conditions: [
       context?.payload?.action === 'labeled',
       context?.payload?.label?.name === 'documentation'
@@ -21,11 +26,6 @@ export const configRoadMaps = [
     func: 'updatePdnDeployment',
     description: 'Update PDN deployment'
   },
-  {
-    conditions: [context?.payload?.action === 'opened'],
-    func: 'addDataToRow',
-    description: 'Add data to row'
-  }
 ]
 
 debug(JSON.stringify(configRoadMaps, null, 2))
