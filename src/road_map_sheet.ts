@@ -8,10 +8,10 @@ export const configRoadMaps = [
   {
     conditions: [
       context?.payload?.action === 'labeled',
-      context?.payload?.label?.name === 'qa'
+      context?.payload?.label?.name === 'documentation'
     ],
-    func: 'updateQaDeployment',
-    description: 'Update QA deployment'
+    func: 'addDataToRow',
+    description: 'Update documentation deployment'
   },
   {
     conditions: [
