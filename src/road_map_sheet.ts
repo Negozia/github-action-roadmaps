@@ -1,38 +1,93 @@
 import GoogleSheets from './google_sheets'
 import { context } from '@actions/github'
-import { debug } from '@actions/core'
+import { debug, info, warning } from '@actions/core'
+import { formatRoadmapDate } from './dates'
 
-const date = new Date()
+/**
+ * Pull request events that can be the first one the action receives for a PR
+ * (GitHub skips `opened` while the PR has merge conflicts). They add the row
+ * if the branch is missing and are a no-op when it is already registered.
+ */
+export const SYNC_ACTIONS = ['synchronize', 'reopened', 'ready_for_review']
 
-export const configRoadMaps = [
-  {
-    conditions: [context?.payload?.action === 'opened'],
-    func: 'addDataToRow',
-    description: 'Add data to row'
-  },
-  {
-    conditions: [
-      context?.payload?.action === 'labeled',
-      context?.payload?.label?.name === 'documentation'
-    ],
-    func: 'addDataToRow',
-    description: 'Update documentation deployment'
-  },
-  {
-    conditions: [
-      context?.payload?.action === 'closed',
-      context?.payload?.pull_request?.merged
-    ],
-    func: 'updatePdnDeployment',
-    description: 'Update PDN deployment'
-  },
-]
+/** Background of a row whose PR is merged (installed in PDN). */
+export const MERGED_ROW_COLOR = { red: 0.94, green: 0.94, blue: 0.94, alpha: 1 }
+
+/** Background of a row whose PR is still open. */
+export const OPEN_ROW_COLOR = { red: 1, green: 1, blue: 1, alpha: 1 }
+
+export type RoadMapConfig = {
+  conditions: boolean[]
+  func: 'addDataToRow' | 'updatePdnDeployment'
+  description: string
+}
+
+/**
+ * Builds the roadmap operations for a pull_request event payload.
+ * @param payload - GitHub event payload.
+ * @returns The operations with their conditions evaluated.
+ */
+export function buildConfigRoadMaps(
+  payload: typeof context.payload
+): RoadMapConfig[] {
+  return [
+    {
+      conditions: [payload?.action === 'opened'],
+      func: 'addDataToRow',
+      description: 'Add data to row'
+    },
+    {
+      conditions: [SYNC_ACTIONS.includes(payload?.action || '')],
+      func: 'addDataToRow',
+      description: 'Add data to row if the branch is missing'
+    },
+    {
+      conditions: [
+        payload?.action === 'labeled',
+        payload?.label?.name === 'documentation'
+      ],
+      func: 'addDataToRow',
+      description: 'Update documentation deployment'
+    },
+    {
+      conditions: [
+        payload?.action === 'closed',
+        Boolean(payload?.pull_request?.merged)
+      ],
+      func: 'updatePdnDeployment',
+      description: 'Update PDN deployment'
+    }
+  ]
+}
+
+/**
+ * Appends a value to a multi-value cell unless it is already there.
+ * @param current - Current cell value.
+ * @param value - Value to add.
+ * @param separator - Separator used between values.
+ * @returns The new cell value, or undefined when no change is needed.
+ */
+export function appendUnique(
+  current: string | undefined,
+  value: string,
+  separator: string
+): string | undefined {
+  if (!value) return undefined
+  const existing = (current || '')
+    .split(/[,\n]/)
+    .map(item => item.trim())
+    .filter(Boolean)
+  if (existing.includes(value.trim())) return undefined
+  return existing.length > 0 ? `${current}${separator}${value}` : value
+}
+
+export const configRoadMaps = buildConfigRoadMaps(context?.payload)
 
 debug(JSON.stringify(configRoadMaps, null, 2))
 debug(JSON.stringify(context, null, 2))
 
 export class RoadMapSheet extends GoogleSheets {
-  private dateToUpdate = `${date.getDate()}/${date.getMonth() + 1}/${date.getFullYear()}`
+  private dateToUpdate = formatRoadmapDate()
   private branch = context?.payload?.pull_request?.head?.ref
   private prUrl = context?.payload?.pull_request?.html_url
 
@@ -74,7 +129,12 @@ export class RoadMapSheet extends GoogleSheets {
     const tester = testerExec ? testerExec[1].trim() : ''
     const taskAsana = taskAsanaExec ? taskAsanaExec[1].trim() : ''
 
-    await this.addRow([
+    if (!description || !typeFeat)
+      warning(
+        'PR body does not match the template: NAME or TYPE will be empty in the roadmap'
+      )
+
+    const row = await this.addRow([
       description,
       allies,
       owner,
@@ -86,11 +146,16 @@ export class RoadMapSheet extends GoogleSheets {
       '',
       taskAsana
     ])
+    // Google copies the format of the row above on append: a merged (grey)
+    // last row would make the new one grey too.
+    await this.setRowBackground(row.rowNumber, OPEN_ROW_COLOR)
+    info(`Row ${row.rowNumber} added for branch "${this.branch}"`)
   }
 
   async updateQaDeployment(): Promise<void> {
-    const rowBranch = await this.getRowByBranch(this.branch)
-    if (!rowBranch) throw new Error('Branch not found')
+    const found = await this.getRowByBranch(this.branch)
+    if (!found) throw new Error('Branch not found')
+    const rowBranch = found.row
 
     for (let i = 1; i <= 4; i++) {
       const currentDate = rowBranch.get('INSTALLED TEST ' + i)
@@ -102,38 +167,50 @@ export class RoadMapSheet extends GoogleSheets {
     }
   }
 
+  /**
+   * Sets the PDN date and greys out the branch row, in the current year or in
+   * the previous one when the PR was opened before the new year.
+   * @throws When the branch has no row.
+   */
   async updatePdnDeployment(): Promise<void> {
-    const rowBranch = await this.getRowByBranch(this.branch)
-    if (!rowBranch) throw new Error('Branch not found')
+    const found = await this.getRowByBranch(this.branch)
+    if (!found) throw new Error('Branch not found')
+    const { row: rowBranch, sheet } = found
 
     rowBranch.set('INSTALLED PDN', this.dateToUpdate)
-    const cellsPropsToUpdate = [
-      {
-        backgroundColor: {
-          red: 0.94,
-          green: 0.94,
-          blue: 0.94,
-          alpha: 1
-        }
-      }
-    ]
-
     await rowBranch.save()
-    await this.modifyRowByIndex(rowBranch.rowNumber - 1, cellsPropsToUpdate)
+    await this.setRowBackground(rowBranch.rowNumber, MERGED_ROW_COLOR, sheet)
+    info(`Row ${rowBranch.rowNumber} marked as installed in PDN`)
   }
 
+  /**
+   * Adds the PR link and repository to the branch row when it already exists.
+   * Skips values already present so repeated events do not duplicate them.
+   * @returns True when the branch row exists (updated or unchanged).
+   */
   private async updateExistingPRByBranch(): Promise<boolean> {
-    const rowBranch = await this.getRowByBranch(this.branch)
-    if (!rowBranch) return false
+    const found = await this.getRowByBranch(this.branch)
+    if (!found) return false
+    const rowBranch = found.row
 
-    const actualPR = rowBranch.get('MR LINK')
-    rowBranch.set('MR LINK', `${actualPR}\n${this.prUrl}`)
-
-    const actualRepository = rowBranch.get('PROJECT')
     const repository = context?.payload?.repository?.name || ''
-    rowBranch.set('PROJECT', `${actualRepository},\n${repository}`)
+    const newPR = appendUnique(rowBranch.get('MR LINK'), this.prUrl || '', '\n')
+    const newProject = appendUnique(rowBranch.get('PROJECT'), repository, ',\n')
+
+    if (newPR === undefined && newProject === undefined) {
+      info(
+        `Branch "${this.branch}" already registered in row ${rowBranch.rowNumber}, nothing to update`
+      )
+      return true
+    }
+
+    if (newPR !== undefined) rowBranch.set('MR LINK', newPR)
+    if (newProject !== undefined) rowBranch.set('PROJECT', newProject)
 
     await rowBranch.save()
+    info(
+      `Branch "${this.branch}" already registered, row ${rowBranch.rowNumber} updated`
+    )
     return true
   }
 }
