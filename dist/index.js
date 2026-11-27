@@ -67953,6 +67953,8 @@ __nccwpck_require__.d(common_utils_namespaceObject, {
 
 // EXTERNAL MODULE: ./node_modules/@actions/core/lib/core.js
 var core = __nccwpck_require__(42186);
+// EXTERNAL MODULE: ./node_modules/@actions/github/lib/github.js
+var github = __nccwpck_require__(95438);
 ;// CONCATENATED MODULE: ./node_modules/axios/lib/helpers/bind.js
 
 
@@ -73125,8 +73127,6 @@ function v(s){let e="";const t=Object.keys(s).filter(r=>r!=="gridProperties").jo
 
 // EXTERNAL MODULE: ./node_modules/google-auth-library/build/src/index.js
 var src = __nccwpck_require__(20810);
-// EXTERNAL MODULE: external "console"
-var external_console_ = __nccwpck_require__(96206);
 ;// CONCATENATED MODULE: ./src/google_sheets.ts
 
 
@@ -73134,25 +73134,79 @@ var external_console_ = __nccwpck_require__(96206);
 const { GSHEET_CLIENT_EMAIL, GSHEET_PRIVATE_KEY } = process.env;
 if (!GSHEET_CLIENT_EMAIL || !GSHEET_PRIVATE_KEY)
     throw new Error('Google sheets credentials have to be supplied');
+/** Rows a new year worksheet starts with (header included). */
+const NEW_SHEET_ROW_COUNT = 1000;
+/** Background of the first empty row of a new year worksheet. */
+const WHITE = { red: 1, green: 1, blue: 1, alpha: 1 };
 class GoogleSheets {
     doc;
     worksheetTitle;
+    previousWorksheetTitle;
     currentSheet;
+    previousSheet;
     serviceAccountJwt = new src/* JWT */.CR({
         email: GSHEET_CLIENT_EMAIL,
         key: GSHEET_PRIVATE_KEY?.split(String.raw `\n`).join('\n'),
         scopes: ['https://www.googleapis.com/auth/spreadsheets']
     });
-    constructor(spreadsheetId, worksheetTitle) {
+    /**
+     * @param spreadsheetId - Google spreadsheet id.
+     * @param worksheetName - Worksheet name without the year (e.g. "Auto Merge Request -").
+     * @param year - Current year; the worksheet title is "<name> <year>".
+     */
+    constructor(spreadsheetId, worksheetName, year) {
         this.doc = new E(spreadsheetId, this.serviceAccountJwt);
-        this.worksheetTitle = worksheetTitle;
+        this.worksheetTitle = `${worksheetName} ${year}`;
+        this.previousWorksheetTitle = `${worksheetName} ${year - 1}`;
     }
+    /**
+     * Loads the current and previous year worksheets, creating the current one
+     * from the previous year when it does not exist yet.
+     * @throws When neither worksheet exists.
+     */
     async loadInfo() {
         await this.doc.loadInfo();
-        const sheetIndex = this.doc.sheetsByIndex.findIndex(sheet => sheet.title === this.worksheetTitle);
-        (0,external_console_.debug)(`Sheet title: ${this.worksheetTitle}`);
-        (0,external_console_.debug)(`Sheet index: ${sheetIndex}`);
-        this.currentSheet = this.doc.sheetsByIndex[sheetIndex];
+        this.previousSheet = this.doc.sheetsByTitle[this.previousWorksheetTitle];
+        this.currentSheet =
+            this.doc.sheetsByTitle[this.worksheetTitle] ??
+                (await this.createYearSheet());
+        (0,core.info)(`Sheet: ${this.worksheetTitle}`);
+    }
+    /**
+     * Creates the current year worksheet as a copy of the previous year with only
+     * its header (same columns, widths and header format). It is built under a
+     * temporary title and renamed at the end, so a failed run never leaves a
+     * half-copied worksheet with the final title.
+     * @returns The new worksheet, or the one another run created meanwhile.
+     * @throws When there is no previous year worksheet to copy.
+     */
+    async createYearSheet() {
+        const previous = this.previousSheet;
+        if (!previous)
+            throw new Error(`Sheet "${this.worksheetTitle}" not found and there is no "${this.previousWorksheetTitle}" to create it from`);
+        (0,core.info)(`Creating sheet "${this.worksheetTitle}" from "${this.previousWorksheetTitle}"`);
+        const sheet = await previous.duplicate({
+            title: `${this.worksheetTitle} (creating ${Date.now()})`,
+            index: previous.index
+        });
+        try {
+            const { columnCount } = sheet;
+            await sheet.resize({ rowCount: 2, columnCount });
+            await sheet.clearRows({ start: 2, end: 2 });
+            await this.setRowBackground(2, WHITE, sheet);
+            await sheet.resize({ rowCount: NEW_SHEET_ROW_COUNT, columnCount });
+            await sheet.updateProperties({ title: this.worksheetTitle });
+            return sheet;
+        }
+        catch (error) {
+            // Another run may have created the worksheet at the same time.
+            await sheet.delete().catch(() => undefined);
+            await this.doc.loadInfo();
+            const existing = this.doc.sheetsByTitle[this.worksheetTitle];
+            if (!existing)
+                throw error;
+            return existing;
+        }
     }
     async getRows() {
         if (!this.currentSheet)
@@ -73181,49 +73235,147 @@ class GoogleSheets {
         }
         await this.currentSheet?.saveUpdatedCells();
     }
+    /**
+     * Sets the background color of every cell in one row, loading only that row.
+     * @param rowNumber - 1-based row number (as in GoogleSpreadsheetRow.rowNumber).
+     * @param color - Background color to apply.
+     * @param sheet - Worksheet of the row; the current year by default.
+     */
+    async setRowBackground(rowNumber, color, sheet = this.currentSheet) {
+        if (!sheet)
+            throw new Error('Sheet not found in setRowBackground');
+        await sheet.loadCells(`A${rowNumber}:${sheet.lastColumnLetter}${rowNumber}`);
+        for (let column = 0; column < sheet.columnCount; column++) {
+            sheet.getCell(rowNumber - 1, column).backgroundColor = color;
+        }
+        await sheet.saveUpdatedCells();
+    }
+    /**
+     * Finds the row of a branch in the current year, or in the previous year
+     * when that row is not installed in PDN yet (PR opened before the new year).
+     * @param branch - Branch name (BRANCH column).
+     * @returns The row and its worksheet, or undefined when not found.
+     */
     async getRowByBranch(branch) {
         if (!this.currentSheet)
             throw new Error('Sheet not found in getRowByBranch');
         const rows = await this.currentSheet.getRows();
-        const rowBranch = rows?.find(row => row.get('BRANCH') === branch);
-        return rowBranch;
+        const row = rows?.find(item => item.get('BRANCH') === branch);
+        if (row)
+            return { row, sheet: this.currentSheet };
+        if (!this.previousSheet)
+            return undefined;
+        const previousRows = await this.previousSheet.getRows();
+        const previousRow = previousRows?.find(item => item.get('BRANCH') === branch && !item.get('INSTALLED PDN'));
+        if (!previousRow)
+            return undefined;
+        (0,core.info)(`Branch "${branch}" found in "${this.previousWorksheetTitle}", row ${previousRow.rowNumber}`);
+        return { row: previousRow, sheet: this.previousSheet };
     }
 }
 
-// EXTERNAL MODULE: ./node_modules/@actions/github/lib/github.js
-var github = __nccwpck_require__(95438);
+;// CONCATENATED MODULE: ./src/dates.ts
+/** Time zone of the team: the roadmap year and dates follow it. */
+const ROADMAP_TIME_ZONE = 'America/Bogota';
+/**
+ * Returns the calendar date of an instant in the roadmap time zone.
+ * The runner clock is UTC, which is already the next day after 7 p.m. in Bogotá.
+ * @param date - Instant to convert.
+ * @returns Day, month (1-12) and year in Bogotá.
+ */
+function roadmapDate(date = new Date()) {
+    const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: ROADMAP_TIME_ZONE,
+        year: 'numeric',
+        month: 'numeric',
+        day: 'numeric'
+    }).formatToParts(date);
+    const get = (type) => Number(parts.find(part => part.type === type)?.value);
+    return { day: get('day'), month: get('month'), year: get('year') };
+}
+/**
+ * Formats an instant as the roadmap date (d/m/yyyy in Bogotá).
+ * @param date - Instant to format.
+ * @returns The date as "d/m/yyyy".
+ */
+function formatRoadmapDate(date = new Date()) {
+    const { day, month, year } = roadmapDate(date);
+    return `${day}/${month}/${year}`;
+}
+
 ;// CONCATENATED MODULE: ./src/road_map_sheet.ts
 
 
 
-const date = new Date();
-const configRoadMaps = [
-    {
-        conditions: [
-            github.context?.payload?.action === 'labeled',
-            github.context?.payload?.label?.name === 'documentation'
-        ],
-        func: 'addDataToRow',
-        description: 'Update documentation deployment'
-    },
-    {
-        conditions: [
-            github.context?.payload?.action === 'closed',
-            github.context?.payload?.pull_request?.merged
-        ],
-        func: 'updatePdnDeployment',
-        description: 'Update PDN deployment'
-    },
-    {
-        conditions: [github.context?.payload?.action === 'opened'],
-        func: 'addDataToRow',
-        description: 'Add data to row'
-    }
-];
+
+/**
+ * Pull request events that can be the first one the action receives for a PR
+ * (GitHub skips `opened` while the PR has merge conflicts). They add the row
+ * if the branch is missing and are a no-op when it is already registered.
+ */
+const SYNC_ACTIONS = ['synchronize', 'reopened', 'ready_for_review'];
+/** Background of a row whose PR is merged (installed in PDN). */
+const MERGED_ROW_COLOR = { red: 0.94, green: 0.94, blue: 0.94, alpha: 1 };
+/** Background of a row whose PR is still open. */
+const OPEN_ROW_COLOR = { red: 1, green: 1, blue: 1, alpha: 1 };
+/**
+ * Builds the roadmap operations for a pull_request event payload.
+ * @param payload - GitHub event payload.
+ * @returns The operations with their conditions evaluated.
+ */
+function buildConfigRoadMaps(payload) {
+    return [
+        {
+            conditions: [payload?.action === 'opened'],
+            func: 'addDataToRow',
+            description: 'Add data to row'
+        },
+        {
+            conditions: [SYNC_ACTIONS.includes(payload?.action || '')],
+            func: 'addDataToRow',
+            description: 'Add data to row if the branch is missing'
+        },
+        {
+            conditions: [
+                payload?.action === 'labeled',
+                payload?.label?.name === 'documentation'
+            ],
+            func: 'addDataToRow',
+            description: 'Update documentation deployment'
+        },
+        {
+            conditions: [
+                payload?.action === 'closed',
+                Boolean(payload?.pull_request?.merged)
+            ],
+            func: 'updatePdnDeployment',
+            description: 'Update PDN deployment'
+        }
+    ];
+}
+/**
+ * Appends a value to a multi-value cell unless it is already there.
+ * @param current - Current cell value.
+ * @param value - Value to add.
+ * @param separator - Separator used between values.
+ * @returns The new cell value, or undefined when no change is needed.
+ */
+function appendUnique(current, value, separator) {
+    if (!value)
+        return undefined;
+    const existing = (current || '')
+        .split(/[,\n]/)
+        .map(item => item.trim())
+        .filter(Boolean);
+    if (existing.includes(value.trim()))
+        return undefined;
+    return existing.length > 0 ? `${current}${separator}${value}` : value;
+}
+const configRoadMaps = buildConfigRoadMaps(github.context?.payload);
 (0,core.debug)(JSON.stringify(configRoadMaps, null, 2));
 (0,core.debug)(JSON.stringify(github.context, null, 2));
 class RoadMapSheet extends GoogleSheets {
-    dateToUpdate = `${date.getDate()}/${date.getMonth() + 1}/${date.getFullYear()}`;
+    dateToUpdate = formatRoadmapDate();
     branch = github.context?.payload?.pull_request?.head?.ref;
     prUrl = github.context?.payload?.pull_request?.html_url;
     async addDataToRow() {
@@ -73257,7 +73409,9 @@ class RoadMapSheet extends GoogleSheets {
         const typeFeat = typeFeatExec ? typeFeatExec[1].trim().toUpperCase() : '';
         const tester = testerExec ? testerExec[1].trim() : '';
         const taskAsana = taskAsanaExec ? taskAsanaExec[1].trim() : '';
-        await this.addRow([
+        if (!description || !typeFeat)
+            (0,core.warning)('PR body does not match the template: NAME or TYPE will be empty in the roadmap');
+        const row = await this.addRow([
             description,
             allies,
             owner,
@@ -73269,11 +73423,16 @@ class RoadMapSheet extends GoogleSheets {
             '',
             taskAsana
         ]);
+        // Google copies the format of the row above on append: a merged (grey)
+        // last row would make the new one grey too.
+        await this.setRowBackground(row.rowNumber, OPEN_ROW_COLOR);
+        (0,core.info)(`Row ${row.rowNumber} added for branch "${this.branch}"`);
     }
     async updateQaDeployment() {
-        const rowBranch = await this.getRowByBranch(this.branch);
-        if (!rowBranch)
+        const found = await this.getRowByBranch(this.branch);
+        if (!found)
             throw new Error('Branch not found');
+        const rowBranch = found.row;
         for (let i = 1; i <= 4; i++) {
             const currentDate = rowBranch.get('INSTALLED TEST ' + i);
             if (currentDate && currentDate !== '' && i != 4)
@@ -73283,39 +73442,51 @@ class RoadMapSheet extends GoogleSheets {
             break;
         }
     }
+    /**
+     * Sets the PDN date and greys out the branch row, in the current year or in
+     * the previous one when the PR was opened before the new year.
+     * @throws When the branch has no row.
+     */
     async updatePdnDeployment() {
-        const rowBranch = await this.getRowByBranch(this.branch);
-        if (!rowBranch)
+        const found = await this.getRowByBranch(this.branch);
+        if (!found)
             throw new Error('Branch not found');
+        const { row: rowBranch, sheet } = found;
         rowBranch.set('INSTALLED PDN', this.dateToUpdate);
-        const cellsPropsToUpdate = [
-            {
-                backgroundColor: {
-                    red: 0.94,
-                    green: 0.94,
-                    blue: 0.94,
-                    alpha: 1
-                }
-            }
-        ];
         await rowBranch.save();
-        await this.modifyRowByIndex(rowBranch.rowNumber - 1, cellsPropsToUpdate);
+        await this.setRowBackground(rowBranch.rowNumber, MERGED_ROW_COLOR, sheet);
+        (0,core.info)(`Row ${rowBranch.rowNumber} marked as installed in PDN`);
     }
+    /**
+     * Adds the PR link and repository to the branch row when it already exists.
+     * Skips values already present so repeated events do not duplicate them.
+     * @returns True when the branch row exists (updated or unchanged).
+     */
     async updateExistingPRByBranch() {
-        const rowBranch = await this.getRowByBranch(this.branch);
-        if (!rowBranch)
+        const found = await this.getRowByBranch(this.branch);
+        if (!found)
             return false;
-        const actualPR = rowBranch.get('MR LINK');
-        rowBranch.set('MR LINK', `${actualPR}\n${this.prUrl}`);
-        const actualRepository = rowBranch.get('PROJECT');
+        const rowBranch = found.row;
         const repository = github.context?.payload?.repository?.name || '';
-        rowBranch.set('PROJECT', `${actualRepository},\n${repository}`);
+        const newPR = appendUnique(rowBranch.get('MR LINK'), this.prUrl || '', '\n');
+        const newProject = appendUnique(rowBranch.get('PROJECT'), repository, ',\n');
+        if (newPR === undefined && newProject === undefined) {
+            (0,core.info)(`Branch "${this.branch}" already registered in row ${rowBranch.rowNumber}, nothing to update`);
+            return true;
+        }
+        if (newPR !== undefined)
+            rowBranch.set('MR LINK', newPR);
+        if (newProject !== undefined)
+            rowBranch.set('PROJECT', newProject);
         await rowBranch.save();
+        (0,core.info)(`Branch "${this.branch}" already registered, row ${rowBranch.rowNumber} updated`);
         return true;
     }
 }
 
 ;// CONCATENATED MODULE: ./src/main.ts
+
+
 
 
 /**
@@ -73326,16 +73497,19 @@ async function run() {
     const { GSHEET_WORKSHEET_NAME, GSHEET_SPREADSHEET_ID } = process.env;
     if (!GSHEET_SPREADSHEET_ID || !GSHEET_WORKSHEET_NAME)
         throw new Error('GSHEET_SPREADSHEET_ID and GSHEET_WORKSHEET_NAME must be defined');
-    const worksheetTitle = `${GSHEET_WORKSHEET_NAME} ${new Date().getFullYear()}`;
     const spreadsheetId = `${GSHEET_SPREADSHEET_ID}`;
+    const toRun = configRoadMaps.filter(config => config.conditions.every(condition => condition));
+    if (toRun.length === 0) {
+        const label = github.context?.payload?.label?.name;
+        (0,core.info)(`No roadmap update for event "${github.context?.payload?.action}"${label ? ` (label "${label}")` : ''}`);
+        return;
+    }
     try {
-        const roadMapSheet = new RoadMapSheet(spreadsheetId, worksheetTitle);
+        const roadMapSheet = new RoadMapSheet(spreadsheetId, GSHEET_WORKSHEET_NAME, roadmapDate().year);
         await roadMapSheet.loadInfo();
-        for await (const config of configRoadMaps) {
-            if (config.conditions.every(condition => condition)) {
-                // @ts-expect-error @TODO create a type for the function
-                await roadMapSheet[config.func]();
-            }
+        for (const config of toRun) {
+            (0,core.info)(config.description);
+            await roadMapSheet[config.func]();
         }
     }
     catch (error) {

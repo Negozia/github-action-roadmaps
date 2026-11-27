@@ -1,3 +1,55 @@
+# Roadmaps action
+
+Adds a row to the roadmap Google Sheet for each pull request and marks the PDN
+deployment date when it is merged.
+
+## Events
+
+| Event                                                   | What it does                    |
+| ------------------------------------------------------- | ------------------------------- |
+| `opened`, `synchronize`, `reopened`, `ready_for_review` | Registers the PR (see below)    |
+| `labeled` with `documentation`                          | Registers the PR (see below)    |
+| `closed` + merged                                       | Sets `INSTALLED PDN`, greys row |
+
+Registering the PR adds a row when the branch is not in the sheet. When the
+branch already has a row (for example, the same branch in another repository),
+it adds the PR link and the project only if they are not there yet.
+
+GitHub does not run `pull_request` workflows while the PR has merge conflicts,
+so a PR opened with conflicts never gets the `opened` run. Listening to
+`synchronize` adds the row on the next push (for example, the merge that
+resolves the conflicts). Repeated events never duplicate the PR link or the
+project in the row.
+
+Workflow in each consumer repository:
+
+```yaml
+on:
+  pull_request:
+    types:
+      - opened
+      - closed
+      - labeled
+      - synchronize
+      - reopened
+      - ready_for_review
+```
+
+## Year worksheets
+
+The worksheet title is `GSHEET_WORKSHEET_NAME` plus the current year in Bogotá
+time (for example `Auto Merge Request - 2027`), so the variable never changes.
+Dates written to the sheet also use Bogotá time.
+
+- If the year worksheet does not exist, the first run of the year creates it as
+  a copy of the previous year with only the header row.
+- A PR opened before the new year and merged after it is found in the previous
+  year worksheet (only rows without `INSTALLED PDN`), so its PDN date is set
+  there and no duplicate row is created.
+
+When an event does not match any case, the log says
+`No roadmap update for event "<action>"`.
+
 # Create a GitHub Action Using TypeScript
 
 [![GitHub Super-Linter](https://github.com/actions/typescript-action/actions/workflows/linter.yml/badge.svg)](https://github.com/super-linter/super-linter)

@@ -1,5 +1,7 @@
-import { setFailed } from '@actions/core'
+import { info, setFailed } from '@actions/core'
+import { context } from '@actions/github'
 import { configRoadMaps, RoadMapSheet } from './road_map_sheet'
+import { roadmapDate } from './dates'
 
 /**
  * The main function for the action.
@@ -12,18 +14,30 @@ export async function run(): Promise<void> {
       'GSHEET_SPREADSHEET_ID and GSHEET_WORKSHEET_NAME must be defined'
     )
 
-  const worksheetTitle = `${GSHEET_WORKSHEET_NAME} ${new Date().getFullYear()}`
   const spreadsheetId = `${GSHEET_SPREADSHEET_ID}`
 
+  const toRun = configRoadMaps.filter(config =>
+    config.conditions.every(condition => condition)
+  )
+  if (toRun.length === 0) {
+    const label = context?.payload?.label?.name
+    info(
+      `No roadmap update for event "${context?.payload?.action}"${label ? ` (label "${label}")` : ''}`
+    )
+    return
+  }
+
   try {
-    const roadMapSheet = new RoadMapSheet(spreadsheetId, worksheetTitle)
+    const roadMapSheet = new RoadMapSheet(
+      spreadsheetId,
+      GSHEET_WORKSHEET_NAME,
+      roadmapDate().year
+    )
     await roadMapSheet.loadInfo()
 
-    for await (const config of configRoadMaps) {
-      if (config.conditions.every(condition => condition)) {
-        // @ts-expect-error @TODO create a type for the function
-        await roadMapSheet[config.func]()
-      }
+    for (const config of toRun) {
+      info(config.description)
+      await roadMapSheet[config.func]()
     }
   } catch (error) {
     const err = error as Error
